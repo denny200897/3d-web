@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D 列印互動模擬器</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;700&display=swap');
+:root{
+  --ink:#0a0e1a; --panel:#11162a; --paper:#f4f1ea;
+  --orange:#ff5722; --amber:#ffb000; --cyan:#1de9b6; --blue:#2962ff;
+  --mono:'JetBrains Mono',monospace;
+  --disp:'Space Grotesk','Noto Sans TC',sans-serif;
+  --body:'Noto Sans TC',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{background:var(--ink);color:var(--paper);font-family:var(--body)}
+#scene{position:fixed;inset:0}
+canvas{display:block}
+
+/* ---- top bar ---- */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:10;
+  display:flex;align-items:center;gap:14px;
+  padding:16px 22px;pointer-events:none;
+}
+.topbar .brand{font-family:var(--disp);font-weight:700;font-size:18px;letter-spacing:-.01em}
+.topbar .brand b{color:var(--orange)}
+.topbar .sub{font-family:var(--mono);font-size:11px;color:#7c8195;letter-spacing:.15em;text-transform:uppercase}
+
+/* ---- control panel ---- */
+.panel{
+  position:fixed;top:64px;left:22px;z-index:10;width:268px;
+  background:rgba(17,22,42,.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.1);border-radius:18px;
+  padding:20px;display:flex;flex-direction:column;gap:18px;
+}
+.panel .ttl{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.panel .ttl::before{content:"";width:22px;height:2px;background:var(--amber)}
+
+.group label{display:flex;justify-content:space-between;font-size:13px;color:#c9ccd8;margin-bottom:8px}
+.group label .v{font-family:var(--mono);color:var(--cyan)}
+input[type=range]{width:100%;-webkit-appearance:none;height:5px;border-radius:5px;background:#2a3050;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:var(--orange);cursor:pointer;border:2px solid #fff}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:var(--orange);cursor:pointer;border:2px solid #fff}
+
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button{flex:1;min-width:54px;padding:9px 4px;border:1px solid rgba(255,255,255,.14);background:none;color:#c9ccd8;border-radius:10px;cursor:pointer;font-family:var(--body);font-size:12.5px;transition:.2s}
+.seg button:hover{border-color:var(--orange)}
+.seg button.on{background:var(--orange);color:var(--ink);border-color:var(--orange);font-weight:700}
+
+.actions{display:flex;gap:8px}
+.actions button{flex:1;padding:12px;border:none;border-radius:12px;cursor:pointer;font-family:var(--disp);font-weight:700;font-size:14px;transition:.2s}
+.btn-go{background:var(--cyan);color:var(--ink)}
+.btn-go:hover{filter:brightness(1.1)}
+.btn-rst{background:rgba(255,255,255,.1);color:#fff}
+.btn-rst:hover{background:rgba(255,255,255,.2)}
+
+/* ---- stats ---- */
+.stats{
+  position:fixed;top:64px;right:22px;z-index:10;width:208px;
+  background:rgba(17,22,42,.82);backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:20px;
+  display:flex;flex-direction:column;gap:16px;
+}
+.stat .big{font-family:var(--disp);font-weight:700;font-size:30px;line-height:1;color:var(--cyan)}
+.stat .lab{font-family:var(--mono);font-size:10.5px;color:#7c8195;letter-spacing:.1em;margin-top:5px;text-transform:uppercase}
+.progress{height:6px;border-radius:6px;background:#2a3050;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--orange),var(--amber));transition:width .15s}
+
+/* ---- hint ---- */
+.hint{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:10;
+  font-family:var(--mono);font-size:11.5px;color:#7c8195;letter-spacing:.05em;
+  background:rgba(17,22,42,.7);padding:8px 16px;border-radius:999px;border:1px solid rgba(255,255,255,.08);
+}
+.badge{display:inline-block;padding:2px 7px;border:1px solid rgba(255,255,255,.2);border-radius:5px;margin:0 2px}
+
+@media(max-width:760px){
+  .panel{width:auto;left:12px;right:12px;top:auto;bottom:54px;flex-direction:row;flex-wrap:wrap;gap:12px;padding:14px}
+  .panel .ttl{width:100%}
+  .group{flex:1;min-width:120px}
+  .stats{top:54px;right:12px;width:128px;padding:14px;gap:10px}
+  .stat .big{font-size:22px}
+  .hint{display:none}
+}
+</style>
+</head>
+<body>
+<div id="scene"></div>
+
+<div class="topbar">
+  <div>
+    <div class="brand">3D 列印 <b>互動模擬器</b></div>
+    <div class="sub">FDM Layer-by-Layer Simulation</div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="ttl">控制台 Controls</div>
+
+  <div class="group">
+    <div class="ttl" style="color:#c9ccd8;font-size:12px;margin-bottom:8px">選擇模型</div>
+    <div class="seg" id="modelSeg">
+      <button data-m="cube" class="on">方塊</button>
+      <button data-m="cyl">圓柱</button>
+      <button data-m="pyr">金字塔</button>
+      <button data-m="vase">花瓶</button>
+    </div>
+  </div>
+
+  <div class="group">
+    <label>層高 Layer Height <span class="v" id="lhVal">0.20 mm</span></label>
+    <input type="range" id="lh" min="1" max="4" step="1" value="2">
+  </div>
+
+  <div class="group">
+    <label>列印速度 Speed <span class="v" id="spVal">1.0×</span></label>
+    <input type="range" id="sp" min="1" max="10" step="1" value="5">
+  </div>
+
+  <div class="group">
+    <div class="ttl" style="color:#c9ccd8;font-size:12px;margin-bottom:8px">填充率 Infill</div>
+    <div class="seg" id="infillSeg">
+      <button data-f="0.15" class="on">15%</button>
+      <button data-f="0.35">35%</button>
+      <button data-f="0.6">60%</button>
+      <button data-f="1">100%</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn-go" id="go">▶ 開始列印</button>
+    <button class="btn-rst" id="rst">↺ 重置</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="ttl" style="font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--amber);text-transform:uppercase">即時數據</div>
+  <div class="stat"><div class="big" id="sLayer">0 / 0</div><div class="lab">已印層數 Layers</div></div>
+  <div class="stat"><div class="big" id="sPct">0%</div><div class="lab">完成度 Progress</div>
+    <div class="progress" style="margin-top:8px"><i id="sBar"></i></div>
+  </div>
+  <div class="stat"><div class="big" id="sTime">0:00</div><div class="lab">預估耗時 Est. Time</div></div>
+</div>
+
+<div class="hint">
+  <span class="badge">拖曳</span> 旋轉視角 ·
+  <span class="badge">滾輪</span> 縮放 ·
+  調整參數後按 <span class="badge">開始列印</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- scene setup ----------
+const host=document.getElementById('scene');
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0x0a0e1a,28,70);
+const camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.1,200);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+
+// lights
+scene.add(new THREE.AmbientLight(0x6677aa,0.6));
+const key=new THREE.DirectionalLight(0xffffff,1.1);
+key.position.set(10,18,8);key.castShadow=true;
+key.shadow.mapSize.set(1024,1024);key.shadow.camera.near=1;key.shadow.camera.far=60;
+key.shadow.camera.left=-15;key.shadow.camera.right=15;key.shadow.camera.top=15;key.shadow.camera.bottom=-15;
+scene.add(key);
+const rim=new THREE.DirectionalLight(0xff5722,0.5);rim.position.set(-8,6,-10);scene.add(rim);
+const fill=new THREE.PointLight(0x1de9b6,0.6,40);fill.position.set(-6,4,8);scene.add(fill);
+
+// ---------- print bed ----------
+const bedGrp=new THREE.Group();scene.add(bedGrp);
+const bedSize=14;
+const bedMat=new THREE.MeshStandardMaterial({color:0x161b30,metalness:.4,roughness:.6});
+const bed=new THREE.Mesh(new THREE.BoxGeometry(bedSize,0.6,bedSize),bedMat);
+bed.position.y=-0.3;bed.receiveShadow=true;bedGrp.add(bed);
+const grid=new THREE.GridHelper(bedSize,28,0x2a3050,0x1c2238);
+grid.position.y=0.02;bedGrp.add(grid);
+
+// ---------- printer gantry ----------
+const gantry=new THREE.Group();scene.add(gantry);
+const railMat=new THREE.MeshStandardMaterial({color:0x39405e,metalness:.7,roughness:.4});
+const railX=new THREE.Mesh(new THREE.BoxGeometry(bedSize+2,0.3,0.3),railMat);
+gantry.add(railX);
+// nozzle assembly
+const nozzleGrp=new THREE.Group();gantry.add(nozzleGrp);
+const head=new THREE.Mesh(new THREE.BoxGeometry(1.2,1.4,1.2),new THREE.MeshStandardMaterial({color:0xff5722,metalness:.5,roughness:.3,emissive:0x5a1500,emissiveIntensity:.5}));
+head.position.y=0.7;head.castShadow=true;nozzleGrp.add(head);
+const tip=new THREE.Mesh(new THREE.ConeGeometry(0.25,0.6,16),new THREE.MeshStandardMaterial({color:0xffb000,emissive:0xff6600,emissiveIntensity:.8}));
+tip.position.y=-0.3;tip.rotation.x=Math.PI;nozzleGrp.add(tip);
+
+// ---------- build object container ----------
+let buildGrp=new THREE.Group();scene.add(buildGrp);
+
+// ---------- model definitions: radius(layerIndex,totalLayers)->half-extent in X/Z ----------
+const MODELS={
+  cube:{name:'方塊',r:()=>4,round:false},
+  cyl:{name:'圓柱',r:()=>4,round:true},
+  pyr:{name:'金字塔',r:(i,n)=>4*(1-i/n)+0.4,round:false},
+  vase:{name:'花瓶',r:(i,n)=>{const t=i/n;return 1.6+2.6*Math.sin(t*Math.PI*0.95)+0.6*Math.sin(t*8);},round:true}
+};
+
+// ---------- state ----------
+let layerHeights=[0.1,0.2,0.3,0.4];
+let state={
+  model:'cube', lh:0.2, speed:1.0, infill:0.15,
+  totalH:7, layers:[], current:0, printing:false, done:false, t:0
+};
+
+const palette=[0xff5722,0xff7043,0xffa726];
+
+function buildModelLayers(){
+  // clear
+  while(buildGrp.children.length)buildGrp.remove(buildGrp.children[0]);
+  const m=MODELS[state.model];
+  const n=Math.max(4,Math.round(state.totalH/state.lh));
+  state.layers=[];
+  for(let i=0;i<n;i++){
+    const r=m.r(i,n);
+    const layer=new THREE.Group();
+    layer.position.y=i*state.lh+state.lh/2;
+    const col=palette[i%palette.length];
+    const mat=new THREE.MeshStandardMaterial({color:col,metalness:.15,roughness:.7,transparent:true,opacity:0});
+    let mesh;
+    if(m.round){
+      mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,state.lh*0.95,40),mat);
+    }else{
+      mesh=new THREE.Mesh(new THREE.BoxGeometry(r*2,state.lh*0.95,r*2),mat);
+    }
+    mesh.castShadow=true;mesh.receiveShadow=true;
+    layer.add(mesh);
+    // infill visual: hollow look when low infill -> add inner darker ring on top layers occasionally
+    layer.userData={r,col};
+    layer.visible=false;
+    buildGrp.add(layer);
+    state.layers.push(layer);
+  }
+  state.current=0;state.done=false;state.printing=false;
+  updateStats();
+  positionNozzle(0);
+}
+
+function positionNozzle(layerIdx){
+  const y=Math.min(layerIdx,state.layers.length-1)*state.lh+state.lh+1.2;
+  gantry.position.y=y;
+}
+
+function estTime(){
+  // rough: layers * baseTimePerLayer / speed, scaled by infill
+  const base=state.layers.length*(2.2+state.infill*1.8)/state.speed;
+  const mins=Math.max(1,Math.round(base));
+  const h=Math.floor(mins/60),mm=mins%60;
+  return h>0?`${h}:${String(mm).padStart(2,'0')}h`:`${mm}:00`;
+}
+
+function updateStats(){
+  const n=state.layers.length;
+  document.getElementById('sLayer').textContent=`${state.current} / ${n}`;
+  const pct=n?Math.round(state.current/n*100):0;
+  document.getElementById('sPct').textContent=pct+'%';
+  document.getElementById('sBar').style.width=pct+'%';
+  document.getElementById('sTime').textContent=estTime();
+}
+
+// ---------- print animation ----------
+let layerTimer=0;
+function tick(dt){
+  if(state.printing && !state.done){
+    layerTimer+=dt*state.speed;
+    const perLayer=0.13; // seconds per layer at 1x
+    if(layerTimer>=perLayer){
+      layerTimer=0;
+      if(state.current<state.layers.length){
+        const L=state.layers[state.current];
+        L.visible=true;
+        L._fade=0;
+        state.current++;
+        positionNozzle(state.current);
+        updateStats();
+      }
+      if(state.current>=state.layers.length){
+        state.done=true;state.printing=false;
+        document.getElementById('go').textContent='✓ 完成';
+        tip.material.emissiveIntensity=.2;
+      }
+    }
+  }
+  // fade-in newly added layers
+  state.layers.forEach(L=>{
+    if(L.visible && L._fade!==undefined && L._fade<1){
+      L._fade=Math.min(1,L._fade+dt*6);
+      L.children[0].material.opacity=L._fade;
+      L.scale.setScalar(0.6+0.4*L._fade);
+    }
+  });
+  // nozzle wiggle while printing
+  if(state.printing){
+    const tt=performance.now()*0.004*state.speed;
+    nozzleGrp.position.x=Math.sin(tt)*3;
+    nozzleGrp.position.z=Math.cos(tt*1.3)*3;
+    tip.material.emissiveIntensity=.6+Math.sin(tt*8)*.3;
+  }
+}
+
+// ---------- orbit camera (custom, r128 has no OrbitControls) ----------
+let camAz=0.8, camEl=0.5, camR=22, tAz=0.8,tEl=0.5,tR=22;
+function updateCam(){
+  camAz+=(tAz-camAz)*0.12;camEl+=(tEl-camEl)*0.12;camR+=(tR-camR)*0.12;
+  const cx=camR*Math.cos(camEl)*Math.sin(camAz);
+  const cy=camR*Math.sin(camEl)+5;
+  const cz=camR*Math.cos(camEl)*Math.cos(camAz);
+  camera.position.set(cx,cy,cz);
+  camera.lookAt(0,3.5,0);
+}
+let drag=false,px=0,py=0;
+renderer.domElement.addEventListener('pointerdown',e=>{drag=true;px=e.clientX;py=e.clientY;});
+addEventListener('pointerup',()=>drag=false);
+addEventListener('pointermove',e=>{
+  if(!drag)return;
+  tAz-=(e.clientX-px)*0.008;
+  tEl=Math.max(0.05,Math.min(1.4,tEl+(e.clientY-py)*0.006));
+  px=e.clientX;py=e.clientY;
+});
+renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();tR=Math.max(10,Math.min(40,tR+e.deltaY*0.02));},{passive:false});
+// touch
+let lastTouch=null;
+renderer.domElement.addEventListener('touchmove',e=>{
+  if(e.touches.length===1){
+    const t=e.touches[0];
+    if(lastTouch){tAz-=(t.clientX-lastTouch.x)*0.008;tEl=Math.max(0.05,Math.min(1.4,tEl+(t.clientY-lastTouch.y)*0.006));}
+    lastTouch={x:t.clientX,y:t.clientY};
+  }
+},{passive:true});
+renderer.domElement.addEventListener('touchend',()=>lastTouch=null);
+
+// ---------- UI wiring ----------
+document.getElementById('modelSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#modelSeg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');state.model=b.dataset.m;buildModelLayers();
+  document.getElementById('go').textContent='▶ 開始列印';
+});
+document.getElementById('infillSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#infillSeg button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');state.infill=parseFloat(b.dataset.f);updateStats();
+});
+const lh=document.getElementById('lh'),lhVal=document.getElementById('lhVal');
+lh.addEventListener('input',()=>{
+  state.lh=layerHeights[lh.value-1];
+  lhVal.textContent=state.lh.toFixed(2)+' mm';
+  buildModelLayers();document.getElementById('go').textContent='▶ 開始列印';
+});
+const sp=document.getElementById('sp'),spVal=document.getElementById('spVal');
+sp.addEventListener('input',()=>{state.speed=sp.value/5;spVal.textContent=state.speed.toFixed(1)+'×';updateStats();});
+
+document.getElementById('go').addEventListener('click',()=>{
+  if(state.done){buildModelLayers();}
+  state.printing=true;
+  document.getElementById('go').textContent='⏸ 列印中…';
+});
+document.getElementById('rst').addEventListener('click',()=>{
+  buildModelLayers();document.getElementById('go').textContent='▶ 開始列印';
+  tip.material.emissiveIntensity=.8;
+});
+
+// ---------- resize ----------
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+// ---------- loop ----------
+let last=performance.now();
+function loop(){
+  const now=performance.now();const dt=Math.min(0.05,(now-last)/1000);last=now;
+  tick(dt);updateCam();
+  bedGrp.rotation.y+=0.0008;buildGrp.rotation.y=bedGrp.rotation.y;gantry.rotation.y=bedGrp.rotation.y;
+  renderer.render(scene,camera);
+  requestAnimationFrame(loop);
+}
+buildModelLayers();
+updateCam();
+loop();
+</script>
+</body>
+</html>
